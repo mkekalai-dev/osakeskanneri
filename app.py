@@ -14,6 +14,16 @@ import pandas as pd
 import yfinance as yf
 import streamlit as st
 
+@st.cache_resource
+def get_yf_session():
+    session = requests.Session()
+    session.headers.update({
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
+    })
+    return session
+
+yf_session = get_yf_session()
+
 # Määritellään sivun asetukset mobiiliystävällisiksi
 st.set_page_config(
     page_title="Laatuyhtiöt Alennuksessa",
