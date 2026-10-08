@@ -109,7 +109,8 @@ def fetch_nordic_tickers():
 def analyze_ticker(sym, region):
     """Analysoi yksittäisen osakkeen fundamentit virhesuojatusti."""
     try:
-        t = yf.Ticker(sym)
+        # KORJATTU RIVI: Lisätty istunnonhallinta, joka huijaa Yahoota luulemaan sovellusta selaimeksi
+        t = yf.Ticker(sym, session=yf_session)
         i = t.info
         if not i or ('currentPrice' not in i and 'regularMarketPrice' not in i):
             return None
@@ -131,6 +132,9 @@ def analyze_ticker(sym, region):
         except Exception:
             ath = high52
         d_ath = round(((price - ath) / ath) * 100, 1) if ath and ath > 0 else d52
+
+        # LISÄTTY RIVI: Pieni 0.2 sekunnin huilaustauko pyyntöjen väliin rinnakkaisajossa
+        time.sleep(0.2)
 
         # Laatumittarit
         roe = i.get('returnOnEquity')
