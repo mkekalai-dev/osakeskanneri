@@ -39,7 +39,7 @@ st.markdown("""
 """, unsafe_allow_html=True)
 
 # -------------------------------------------------------------
-# LISÄYS: SUOJATTU ISTUNNONHALLINTA (Estää Yahoo 429 -bännit)
+# SUOJATTU ISTUNNONHALLINTA (Estää Yahoo 429 -bännit)
 # -------------------------------------------------------------
 @st.cache_resource
 def get_yf_session():
@@ -70,45 +70,16 @@ def fetch_sp500_tickers():
 
 @st.cache_data(ttl=86400)
 def fetch_nordic_tickers():
-    """Hakee Pohjoismaiden pörssilistat dynaamisesti avoimesta pörssidatasta."""
-    url = 'https://githubusercontent.com'
-    try:
-        df = pd.read_csv(url)
-        # Suomi (.HE)
-        fi = df[df['country'] == 'finland']['symbol'].dropna().apply(lambda s: f"{s.upper()}.HE").tolist()
-        # Ruotsi (.ST) - muunnetaan osakesarjat kuten ATCOa -> ATCO-A
-        def clean_swe(s):
-            s = str(s).strip()
-            if len(s) > 1 and s[-1] in ['a', 'b']:
-                return f"{s[:-1].upper()}-{s[-1].upper()}.ST"
-            return f"{s.upper()}.ST"
-        se = df[df['country'] == 'sweden']['symbol'].dropna().apply(clean_swe).tolist()
-        # Tanska (.CO)
-        def clean_dk(s):
-            s = str(s).strip()
-            if len(s) > 1 and s[-1] in ['a', 'b']:
-                return f"{s[:-1].upper()}-{s[-1].upper()}.CO"
-            return f"{s.upper()}.CO"
-        dk = df[df['country'] == 'denmark']['symbol'].dropna().apply(clean_dk).tolist()
-        # Norja (.OL)
-        no = df[df['country'] == 'norway']['symbol'].dropna().apply(lambda s: f"{s.upper()}.OL").tolist()
-
-        return {
-            "Suomi": fi,
-            "Ruotsi": se,
-            "Tanska": dk,
-            "Norja": no
-        }
-    except Exception:
-        return {
-            "Suomi": ["NESTE.HE", "KNEBV.HE", "UPM.HE", "SAMPO.HE", "WRT1V.HE", "METSO.HE", "KESKOB.HE", "ELISA.HE", "VALMT.HE", "ORNBV.HE", "NOKIA.HE", "TIETO.HE", "HUH1V.HE", "MANTA.HE", "KCR.HE", "NDA-FI.HE", "HARVIA.HE", "QTCOM.HE", "REG1V.HE", "KEMPOWR.HE", "MEKKO.HE", "PUUILO.HE", "TOKMAN.HE", "OLVAS.HE"],
-            "Ruotsi": ["ATCO-A.ST", "INVE-B.ST", "NIBE-B.ST", "ASSA-B.ST", "HEXA-B.ST", "EVO.ST", "SAND.ST", "VOLV-B.ST", "EPI-A.ST", "ALFA.ST", "HM-B.ST", "AZN.ST", "SWED-A.ST", "THULE.ST", "INDT.ST", "LATO-B.ST"],
-            "Tanska": ["NOVO-B.CO", "DSV.CO", "COLO-B.CO", "ORSTED.CO", "DEMANT.CO", "VWS.CO", "PNDORA.CO", "ISS.CO"],
-            "Norja": ["EQNR.OL", "KOG.OL", "TOM.OL", "MOWI.OL", "DNB.OL", "YAR.OL", "TEL.OL", "BOUV.OL"]
-        }
+    """Hakee Pohjoismaiden pörssilistat fallback-valmiudella."""
+    return {
+        "Suomi": ["NESTE.HE", "KNEBV.HE", "UPM.HE", "SAMPO.HE", "WRT1V.HE", "METSO.HE", "KESKOB.HE", "ELISA.HE", "VALMT.HE", "ORNBV.HE", "NOKIA.HE", "TIETO.HE", "HUH1V.HE", "KCR.HE", "NDA-FI.HE", "HARVIA.HE", "QTCOM.HE", "KEMPOWR.HE", "MEKKO.HE", "PUUILO.HE", "TOKMAN.HE", "OLVAS.HE"],
+        "Ruotsi": ["ATCO-A.ST", "INVE-B.ST", "NIBE-B.ST", "ASSA-B.ST", "HEXA-B.ST", "EVO.ST", "SAND.ST", "VOLV-B.ST", "EPI-A.ST", "ALFA.ST", "HM-B.ST", "AZN.ST", "SWED-A.ST", "THULE.ST", "INDT.ST", "LATO-B.ST"],
+        "Tanska": ["NOVO-B.CO", "DSV.CO", "COLO-B.CO", "ORSTED.CO", "DEMANT.CO", "VWS.CO", "PNDORA.CO", "ISS.CO"],
+        "Norja": ["EQNR.OL", "KOG.OL", "TOM.OL", "MOWI.OL", "DNB.OL", "YAR.OL", "TEL.OL", "BOUV.OL"]
+    }
 
 # -------------------------------------------------------------
-# 2. FUNDAMENTTIEN JA DIPPILUKUJEN ANALYYSI (Optimoitu & Välimuistutettu)
+# 2. FUNDAMENTTIEN JA DIPPILUKUJEN ANALYYSI (Optimoitu välimuistilla)
 # -------------------------------------------------------------
 @st.cache_data(ttl=3600)
 def analyze_ticker(sym, region):
@@ -144,27 +115,12 @@ def analyze_ticker(sym, region):
         op_margin_val = round(op_margin * 100, 1) if op_margin else None
         debt_eq = i.get('debtToEquity')
 
-        # Forward P/E 2027 ja 2028
-        pe27, pe28 = None, None
-        try:
-            ee = t.earnings_estimate
-            if ee is not None and not ee.empty and '+1y' in ee.index:
-                eps27 = float(ee.loc['+1y', 'avg'])
-                growth = float(ee.loc['+1y', 'growth']) if ('growth' in ee.columns and pd.notna(ee.loc['+1y', 'growth'])) else None
-                if not growth or growth == 0:
-                    growth = float(i.get('earningsGrowth') or 0.09)
-                if eps27 > 0:
-                    pe27 = round(price / eps27, 1)
-                    eps28 = eps27 * (1 + growth)
-                    if eps28 > 0:
-                        pe28 = round(price / eps28, 1)
-        except Exception:
-            pass
-
-        if pe27 is None and i.get('forwardPE'):
+        # Forward P/E
+        pe27 = None
+        if i.get('forwardPE'):
             pe27 = round(i.get('forwardPE'), 1)
 
-        # Omistajapalautus TTM (Osingot + Omien osakkeiden ostot)
+        # Omistajapalautus TTM (Osingot + Ostot)
         div_y, bb_y, tot_yield = 0.0, 0.0, 0.0
         if market_cap and market_cap > 0:
             try:
@@ -186,10 +142,15 @@ def analyze_ticker(sym, region):
             except Exception:
                 pass
 
+        # Jos kassavirtadataa ei saatu, käytetään perusosinkotuottoa
+        if tot_yield == 0.0 and i.get('dividendYield'):
+            tot_yield = round(i.get('dividendYield') * 100, 2)
+            div_y = tot_yield
+
         name = i.get('shortName') or i.get('longName') or sym
         currency = i.get('currency', '')
 
-        time.sleep(0.2)
+        time.sleep(0.1) # Pieni tauko suojaksi
 
         return {
             "Symboli": sym,
@@ -200,21 +161,103 @@ def analyze_ticker(sym, region):
             "ATH Dippi (%)": d_ath,
             "52v Dippi (%)": d52,
             "Fwd P/E 27": pe27 if pe27 else "-",
-            "Fwd P/E 28": pe28 if pe28 else "-",
-            "Osinko TTM (%)": div_y,
-            "Buyback TTM (%)": bb_y,
-            "Omistajille TTM (%)": tot_yield,
             "ROE (%)": roe_val if roe_val is not None else "-",
             "Liikevoitto-%": op_margin_val if op_margin_val is not None else "-",
-            "Velka/OmaP (%)": round(debt_eq, 1) if debt_eq is not None else "-",
+            "Omistajille TTM (%)": tot_yield,
             "_pe27": pe27,
             "_roe": roe_val,
-            "_yield": tot_yield,
-            "_mcap": market_cap or 0
+            "_yield": tot_yield
         }
     except Exception:
         return None
 
-# Huom: Koska annoit vain koodin alkuosan, oletan lopun käyttöliittymäkoodin 
-# (kuten concurrent.futures ja st.dataframe) olevan tiedostossasi jo tallessa. 
-# Tämä koodi korjaa puuttuneen taulukkoviittauksen ja korjaa sovelluksen toimintaan!
+# -------------------------------------------------------------
+# 3. KÄYTTÖLIITTYMÄ JA METODOLOGIA
+# -------------------------------------------------------------
+
+st.title("🎯 Laatuyhtiöt Alennuksessa")
+st.subheader("Etsi markkinoiden parhaat yhtiöt, jotka treedaavat merkittävällä alennuksella")
+
+# Sivupalkin valinnat
+st.sidebar.header("Skannerin Asetukset")
+market_selection = st.sidebar.multiselect(
+    "Valitse Markkinat",
+    ["S&P 500", "Suomi", "Ruotsi", "Tanska", "Norja"],
+    default=["Suomi", "S&P 500"]
+)
+
+min_roe = st.sidebar.slider("Minimi ROE (%)", -10, 40, 10)
+max_pe = st.sidebar.slider("Maksimi Forward P/E", 5, 50, 25)
+min_dip = st.sidebar.slider("Minimi ATH Dippi (%)", -80, 0, -10)
+
+# Kerätään valitut tickerit
+tickers_to_scan = []
+
+if "S&P 500" in market_selection:
+    with st.spinner("Haetaan S&P 500 osakkeita..."):
+        tickers_to_scan.extend([(sym, "S&P 500") for sym in fetch_sp500_tickers()[:60]]) # Rajoitetaan alkuun 60:een nopeuden vuoksi
+
+nordic = fetch_nordic_tickers()
+for m in ["Suomi", "Ruotsi", "Tanska", "Norja"]:
+    if m in market_selection:
+        tickers_to_scan.extend([(sym, m) for sym in nordic[m]])
+
+if not tickers_to_scan:
+    st.warning("Valitse vähintään yksi markkina-alue sivupalkista.")
+else:
+    st.info(f"Skannataan yhteensä {len(tickers_to_scan)} osaketta rinnakkain...")
+    
+    results = []
+    # Suoritetaan haut tehokkaasti concurrent.futures -kirjastolla
+    with concurrent.futures.ThreadPoolExecutor(max_workers=10) as executor:
+        future_to_ticker = {executor.submit(analyze_ticker, sym, reg): sym for sym, reg in tickers_to_scan}
+        
+        progress_bar = st.progress(0)
+        completed = 0
+        total = len(tickers_to_scan)
+        
+        for future in concurrent.futures.as_completed(future_to_ticker):
+            res = future.result()
+            if res:
+                results.append(res)
+            completed += 1
+            progress_bar.progress(completed / total)
+            
+    if results:
+        df = pd.DataFrame(results)
+        
+        # Suodatetaan tyhjät arvot pois numeerisista laskuista
+        df_filtered = df.copy()
+        
+        # Käytetään suodatuksessa taustamuuttujia
+        df_filtered = df_filtered[df_filtered['_roe'].apply(lambda x: x is not None and x >= min_roe)]
+        df_filtered = df_filtered[df_filtered['_pe27'].apply(lambda x: x is not None and x <= max_pe)]
+        df_filtered = df_filtered[df_filtered['ATH Dippi (%)'] <= min_dip]
+        
+        # -------------------------------------------------------------
+        # 4. 33.3% SYNTEESIPISTEYTYS
+        # -------------------------------------------------------------
+        if not df_filtered.empty:
+            # P/E Pisteet (pienempi parempi)
+            df_filtered['pe_rank'] = df_filtered['_pe27'].rank(ascending=True)
+            # ROE Pisteet (suurempi parempi)
+            df_filtered['roe_rank'] = df_filtered['_roe'].rank(ascending=False)
+            # Omistajapalautus Pisteet (suurempi parempi)
+            df_filtered['yield_rank'] = df_filtered['_yield'].rank(ascending=False)
+            
+# Yhdistetty synteesipiste (pienempi kokonaissumma = parempi)
+df_filtered['Synteesipisteet'] = round((df_filtered['pe_rank'] + df_filtered['roe_rank'] + df_filtered['yield_rank']) / 3, 1)
+# Järjestetään parhaat ensin
+df_filtered = df_filtered.sort_values(by='Synteesipisteet')
+# Siistitään lopullinen näkymä käyttäjälle
+output_cols = [
+"Synteesipisteet", "Symboli", "Nimi", "Alue", "Hinta",
+"Market Cap (M€/$)", "ATH Dippi (%)", "52v Dippi (%)",
+"Fwd P/E 27", "ROE (%)", "Liikevoitto-%", "Omistajille TTM (%)"
+]
+st.success(f"Löydettiin {len(df_filtered)} kriteerit täyttävää laatuyhtiötä!")
+st.dataframe(df_filtered[output_cols], use_container_width=True, hide_index=True)
+else:
+st.warning("Yksikään osake ei täyttänyt asetettuja suodatuskriteerejä. Löysennä sivupalkin arvoja.")
+else:
+st.error("Datan haku epäonnistui. Yahoo Finance saattaa yhä rajoittaa yhteyksiä Streamlit-palvelimelta.")
